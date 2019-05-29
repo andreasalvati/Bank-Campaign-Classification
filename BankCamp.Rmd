@@ -60,22 +60,36 @@ Dataset from : http://archive.ics.uci.edu/ml/datasets/Bank+Marketing#
 #### Load Libraries
 ```{r Libraries to be used for this project, warning=FALSE}
 library(data.table)
-library(dplyr)
-library(DataExplorer)
 library(ggplot2)
-library(tidyr)
-library(dplyr)    
-library(png)      
-library(knitr)     
-library(moments)   
-library(e1071)     
-library(glmnet)    
-library(caret)     
-library(corrplot)
-library(ggloop)
+library(dplyr)
+library(png) 
+library(knitr) 
+library(moments) 
+library(e1071) 
+library(glmnet) 
+library(caret) 
+library(lubridate)
+library(VIM)
+library(ggmap)
+library(xgboost)
+library(mlr)
+library(adabag)
+library(party)
+library(maps)
+library(ggthemes)
+library(DT)
 library(leaflet)
+library(missForest)
 library(RColorBrewer)
-library(devtools)
+library(DiagrammeR)
+library(ROCR)
+library(pROC)
+library(plotROC)
+library(nnet)
+library(caretEnsemble)
+library(mlbench)
+library(DataExplorer)
+library(outliers)
 ```
 
 #### Load Datasets
@@ -212,6 +226,8 @@ ggplot(data = marital2, aes(x = marital, y = count, fill = y)) +
 ```{r Age}
 # Age distribution
 ggplot(bank_dataset, aes(age)) + geom_density(fill = "seagreen4") + theme_minimal() + labs(x = "Age", y = "Density", caption = "Source: Group 4")
+ggplot(bank_dataset, aes(age)) + geom_histogram(fill = "seagreen4", binwidth = 5) + theme_minimal() + labs(x = "Age", y = "Density", caption = "Source: Group 4")
+
 
 # We will bin the age into age groups and visualize it with subscribtions
 bank_dataset <- bank_dataset %>% mutate(age_group = ifelse(age >= 18 & age <= 25, "18-25",
@@ -454,6 +470,8 @@ ggplot(bank_dataset[bank_dataset$train_test=="train",], aes(x=y, y=campaign)) +
   geom_boxplot(fill='seagreen4', color="tomato3") + labs(x = "Subscribe", y = "Campaign", caption = "Source: Group 4") + theme_minimal()
 
 ```
+
+
 ```{r poutcome}
 # poutcome: outcome of the previous marketing campaign (categorical: 'failure','nonexistent','success')
 table(bank_dataset$poutcome)
@@ -482,50 +500,179 @@ ggplot(data = poutcome2, aes(x = poutcome, y = count, fill = y)) +
 
 ```
 
+
 ```{r previous}
 # previous: number of contacts performed before this campaign and for this client (numeric)
+table(bank_dataset$previous)
+table(bank_dataset[bank_dataset$train_test=="train",]$previous, bank_dataset[bank_dataset$train_test=="train",]$y)
+
+# Count of each category in the whole dataset
+ggplot(data = bank_dataset, aes(x = previous)) + geom_bar(fill = "seagreen4") + theme_minimal() + labs(x = "previous", y = "Count", caption = "Source: Group 4")
+
+# for a better visualization, we will 
+ggplot(data = bank_dataset[bank_dataset$previous < 20,], aes(x = previous)) + geom_bar(fill = "seagreen4") + theme_minimal() + labs(x = "previous", y = "Count", caption = "Source: Group 4")
 
 ```
 
-```{r pdays}
-# pdays: number of days that passed by after the client was last contacted from a previous campaign (numeric; 999 means client was not previously contacted)
+
+```{r balance}
+min(bank_dataset$balance)
+max(bank_dataset$balance)
+
+ggplot(bank_dataset, aes(balance)) + geom_histogram(fill = "seagreen4") + theme_minimal() + labs(x = "Balance", y = "Count", caption = "Source: Group 4")
+
+bank_dataset <- bank_dataset %>% mutate(balance_range = ifelse(balance < 0, "negative balance",
+                                                               ifelse(balance >=0 & balance <= 20000, "low balance",
+                                                                      ifelse(balance > 20000 & balance <= 60000, "medium balance",
+                                                                             ifelse(balance > 60000, "high balance", NA)))))
+
+
+table(bank_dataset[bank_dataset$train_test=="train",]$balance_range, bank_dataset[bank_dataset$train_test=="train",]$y)
+
+
+# Count of each category in the whole dataset
+ggplot(data = bank_dataset, aes(x = balance_range)) + geom_bar(fill = "seagreen4") + theme_minimal() + labs(x = "Balance", y = "Count", caption = "Source: Group 4")
+
+# Using count
+balance_group <- as.data.frame(table(bank_dataset[bank_dataset$train_test=="train",]$balance_range,
+                                     bank_dataset[bank_dataset$train_test=="train",]$y))
+colnames(balance_group) <-  c("balance_range", "y", "count")
+
+ggplot(data = balance_group, aes(x = balance_range, y = count, fill = y)) + 
+  geom_bar(stat = 'identity', position = 'dodge', alpha = 2/3) +xlab("Balance")+
+    ylab("Count") + theme_minimal() + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_fill_manual(values = c("tomato3", "seagreen4")) + labs(fill = "Subscribe", caption = "Source: Group 4")
+
+```
+
+
+```{r month}
+table(bank_dataset$month)
+table(bank_dataset[bank_dataset$train_test=="train",]$month, bank_dataset[bank_dataset$train_test=="train",]$y)
+
+# Count of each category in the whole dataset
+ggplot(data = bank_dataset, aes(x = month)) + geom_bar(fill = "seagreen4") + theme_minimal() + labs(x = "Month", y = "Count", caption = "Source: Group 4")
+
+# Using count
+month <- as.data.frame(table(bank_dataset[bank_dataset$train_test=="train",]$month,
+                                     bank_dataset[bank_dataset$train_test=="train",]$y))
+colnames(month) <-  c("month", "y", "count")
+
+ggplot(data = month, aes(x = month, y = count, fill = y)) + 
+  geom_bar(stat = 'identity', position = 'dodge', alpha = 2/3) +xlab("Month")+
+    ylab("Count") + theme_minimal() + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_fill_manual(values = c("tomato3", "seagreen4")) + labs(fill = "Subscribe", caption = "Source: Group 4")
+
+```
+
+```{r day}
+table(bank_dataset$day)
+table(bank_dataset[bank_dataset$train_test=="train",]$day, bank_dataset[bank_dataset$train_test=="train",]$y)
+
+# Count of each category in the whole dataset
+ggplot(data = bank_dataset, aes(x = day)) + geom_bar(fill = "seagreen4") + theme_minimal() + labs(x = "day", y = "Count", caption = "Source: Group 4")
+
+# Probability table
+day <- as.data.frame(prop.table(table(bank_dataset[bank_dataset$train_test=="train",]$day, bank_dataset[bank_dataset$train_test=="train",]$y)))
+colnames(day) <-  c("day", "y", "perc")
+
+ggplot(data = day, aes(x = day, y = perc, fill = y)) + 
+  geom_bar(stat = 'identity', position = 'dodge', alpha = 2/3) +xlab("day")+
+    ylab("Percent") + theme_minimal() + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_fill_manual(values = c("tomato3", "seagreen4")) + labs(fill = "Subscribe", caption = "Source: Group 4")
+
+# Using count
+day2 <- as.data.frame(table(bank_dataset[bank_dataset$train_test=="train",]$day, bank_dataset[bank_dataset$train_test=="train",]$y))
+colnames(day2) <-  c("day", "y", "count")
+
+ggplot(data = day2, aes(x = day, y = count, fill = y)) + 
+  geom_bar(stat = 'identity', position = 'dodge', alpha = 2/3) +xlab("day")+
+    ylab("Count") + theme_minimal() + theme(axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.5)) +
+  scale_fill_manual(values = c("tomato3", "seagreen4")) + labs(fill = "Subscribe", caption = "Source: Group 4")
 
 ```
 
 
 #### Data Cleaning
 
-#### Feature Creation
-
 ```{r}
+
+# for pdays, 999 means that the client was not contacted before so we will replace 999 with zeroes
+# bank_dataset$pdays[which(bank_dataset$pdays == 999)] <- 0
 
 ```
 
 
-#### Feature Elimination
+#### Feature Creation/Engineering
 
 ```{r}
-str(bank_dataset)
+
+bank_dataset[["y"]] <- ifelse(bank_dataset$y == "no", 0, 1)
+bank_dataset$y <- as.factor(bank_dataset$y)
+
 ```
 
 
 #### Factorizing Features
 
 ```{r}
-
+bank_dataset$day <- as.factor(bank_dataset$day)
+bank_dataset$balance_range <- as.factor(bank_dataset$balance_range)
+bank_dataset$duration_group <- as.factor(bank_dataset$duration_group)
+bank_dataset$age_group <- as.factor(bank_dataset$age_group)
+bank_dataset$campaign_group <- as.factor(bank_dataset$campaign_group)
 ```
 
 
 #### Outliers 
 
-```{r}
+We will now focus on numerical values. In this section, we will detect numerical features which present outliers and I will clip those values.
+```{r detecting Outliers, echo=FALSE}
 
+# Classify all numeric columns
+column_types <- sapply(names(bank_dataset), function(x) {
+    class(bank_dataset[[x]])
+  }
+)
+numeric_columns <- names(column_types[column_types != "factor" & column_types != "character"])
+
+# Identify the feature with the outliers
+outliers <- scores(bank_dataset[,numeric_columns], type="chisq", prob=0.9)
+per_outliers <- sort(((colSums(outliers)/length(bank_dataset$age))*100), decreasing = TRUE)
+col_outliers_to_remove <- names(per_outliers[per_outliers > 5])
+
+# Plot the boxplots of the selected variables
+for (i in col_outliers_to_remove){
+  boxplot(bank_dataset[,i], type="p", xlab=i)
+}
+
+```
+
+
+```{r Clipping Outliers}
+# Clipping the outliers
+for (i in col_outliers_to_remove){
+  qnt <- quantile(bank_dataset[[i]], probs=c(.25, .75))
+  caps <- quantile(bank_dataset[[i]], probs=c(.05, .95))
+  H <- 1.5 * IQR(bank_dataset[[i]])
+  bank_dataset[[i]][bank_dataset[[i]] < (qnt[1] - H)] <- caps[1]
+  bank_dataset[[i]][bank_dataset[[i]] > (qnt[2] + H)] <- caps[2]
+}
+
+# Plot again the box plots to verify if the procedure has been successful
+for (i in col_outliers_to_remove){
+  boxplot(bank_dataset[,i], type="p", xlab=i)
+}
 ```
 
 
 #### Scaling
 
 ```{r}
+# Feature scaling
+numericFeatures = sapply(bank_dataset[,-1], is.numeric)
+numericFeatures = c(FALSE, numericFeatures)
+bank_dataset[numericFeatures] = sapply(bank_dataset[numericFeatures], scale)
 
 ```
 
@@ -534,22 +681,129 @@ str(bank_dataset)
 
 #### Train and Test Split
 ```{r Train test validation split}
+
 # Split the dataset into TRAIN and TEST
-training_data <- as.data.frame(bank_dataset[bank_dataset$train_test == "train",])
+train_data <- as.data.frame(bank_dataset[bank_dataset$train_test == "train",])
 test_data <- as.data.frame(bank_dataset[bank_dataset$train_test == "test",])
 
-# # need to drop "TBD" from the target variable as TBD should be predicted for TEST dataset
-# training_data$status_group <- droplevels(training_data$status_group)
-# 
-# # Remove the "dataType" column from TRAIN, VALIDATION and TEST dataset
-# training_data <- training_data[,-which(names(dataset) == "dataType")]
-# test_data <- test_data[,-which(names(dataset) == "dataType")]
+dim(train_data)
+dim(test_data)
+
+train_data <- train_data[,-which(names(train_data) == "train_test")]
+test_data <- test_data[,-which(names(test_data) == "train_test")]
+
+```
+
+
+
+#### 15.1 Train / Validation split
+We are going to split the annotated dataset in training and validation for the later evaluation of our regression models
+```{r Data Split Function}
+# Function to split a dataset into training and validation.
+splitdf <- function(dataframe, seed=NULL) {
+  if (!is.null(seed)) set.seed(seed)
+ 	index <- 1:nrow(dataframe)
+ 	trainindex <- sample(index, trunc(length(index)/1.2))
+ 	trainset <- dataframe[trainindex, ]
+ 	testset <- dataframe[-trainindex, ]
+ 	list(trainset=trainset,testset=testset)
+}
+
+# Applying the function to the training_data
+splits <- splitdf(train_data, seed = 8)
+
+# Splitting the data into train set and validation set
+training <- splits$trainset
+validation <- splits$testset
+
+dim(training)
+dim(validation)
+
 ```
 
 #### Modeling
+
+##### Train control
+
+```{r train control}
+trControl<- trainControl(method="repeatedcv",
+                             number=5,
+                             search="grid",
+                             savePredictions = TRUE,
+                             verboseIter = FALSE)
+```
+
+### XG BOOST
+
+Let's build a XG Boost model using differnet grid parameters and training control parameters, mentioned previously.
+
+```{r XGBOOST}
+# xgbgrid <- expand.grid(
+#   nrounds=c(100, 500, 1000),
+#   max_depth = c(6, 10),
+#   eta = c(0.05, 0.1),
+#   gamma = c(0, 0.3),
+#   colsample_bytree = c(0.5, 0.75),
+#   subsample = c(0.5, 0.8),
+#   min_child_weight = c(1, 2, 5))
+
+xgbgrid <- expand.grid(
+  nrounds=200,
+  max_depth = 6,
+  eta = 0.05,
+  gamma = c(0.2, 1),
+  colsample_bytree = 0.5,
+  subsample = 0.5,
+  min_child_weight = 1)
+
+# train the xgboost learner
+cv_xgboost <- caret::train(as.factor(y)~., data=data.matrix(training),
+                           method = 'xgbTree',
+                           metric = 'Accuracy',
+                           trControl = trControl,
+                           tuneGrid = xgbgrid)
+
+
+# Best tunning parameters obtained
+cv_xgboost$results
+cv_xgboost$bestTune
+
+# Let's check the variable importance
+plot(cv_xgboost, main = "CV Summary")
+
+# Top 20 important variable
+plot(varImp(cv_xgboost), main = "Variable Importance XGBoost", top = 20)
+```
+
+
+```{r}
+validation$pred <- predict(cv_xgboost, newdata = data.matrix(validation))
+validation$pred <- ifelse(validation$pred == 1, "0", "1")
+validation$pred <- as.factor(validation$pred)
+
+sensitivity(validation$pred, validation$y)
+
+```
+
+
+```{r KNN}
+cv_knn <- caret::train(as.factor(y)~., data=data.matrix(train_data),
+                       method = "knn",
+                       trControl = trControl,
+                       preProcess = c("center","scale"),
+                       tuneLength = 20,
+                       tuneGrid= expand.grid(.k=c(5,8,10)))
+
+# Best tunning parameters
+cv_knn$bestTune
+
+# K vs Accuracy
+plot(cv_knn, main = "Accuracy")
+```
+
+
 ##### Logistic Regression
 ##### Decision Trees
-##### XGB
 ##### Random Forest
 ##### KNN
 
