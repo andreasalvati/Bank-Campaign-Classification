@@ -90,6 +90,8 @@ library(caretEnsemble)
 library(mlbench)
 library(DataExplorer)
 library(outliers)
+library(MLmetrics)
+library(dummies)
 ```
 
 #### Load Datasets
@@ -598,7 +600,7 @@ ggplot(data = day2, aes(x = day, y = count, fill = y)) +
 ```{r}
 
 # for pdays, 999 means that the client was not contacted before so we will replace 999 with zeroes
-# bank_dataset$pdays[which(bank_dataset$pdays == 999)] <- 0
+bank_dataset$pdays[which(bank_dataset$pdays == 999)] <- 0
 
 ```
 
@@ -682,16 +684,30 @@ bank_dataset[numericFeatures] = sapply(bank_dataset[numericFeatures], scale)
 #### Train and Test Split
 ```{r Train test validation split}
 
+# Create dummy variables
+bank_dataset$age <- NULL
+bank_dataset$duration <- NULL
+bank_dataset$campaign <- NULL
+bank_dataset$balance <- NULL
+bank_dataset <- dummy.data.frame(bank_dataset)
+bank_dataset[["y"]] <- ifelse(bank_dataset$y0 == 1, 0,1)
+bank_dataset$y <- as.factor(bank_dataset$y)
+bank_dataset$y0 <- NULL
+bank_dataset$y1 <- NULL
+bank_dataset$yNA <- NULL
+
 # Split the dataset into TRAIN and TEST
-train_data <- as.data.frame(bank_dataset[bank_dataset$train_test == "train",])
-test_data <- as.data.frame(bank_dataset[bank_dataset$train_test == "test",])
+train_data <- as.data.frame(bank_dataset[bank_dataset$train_testtrain == 1,])
+test_data <- as.data.frame(bank_dataset[bank_dataset$train_testtest == 1,])
+
+train_data$train_testtrain <- NULL
+train_data$train_testtest <- NULL
+test_data$train_testtrain <- NULL
+test_data$train_testtest <- NULL
+
 
 dim(train_data)
 dim(test_data)
-
-train_data <- train_data[,-which(names(train_data) == "train_test")]
-test_data <- test_data[,-which(names(test_data) == "train_test")]
-
 ```
 
 
@@ -716,12 +732,29 @@ splits <- splitdf(train_data, seed = 8)
 training <- splits$trainset
 validation <- splits$testset
 
+# Append and split again to keep same factor levels
+appended <- rbind(training, validation)
+training <- appended[1:nrow(training),]
+validation <- appended[nrow(training):nrow(appended),]
 dim(training)
 dim(validation)
+
 
 ```
 
 #### Modeling
+
+### Evaluation Function 
+```{r}
+model_comparison <- data.frame()
+eval_metrics <- function(name, real, predicted){
+  model_comparison <- rbind(model_comparison, data.frame(model = name, accuracy = Accuracy(y_true = real, y_pred = predicted), precision = Precision(y_true = real, y_pred = predicted), sensitivity =  Sensitivity(y_true = real, y_pred = predicted), specificity = Specificity(y_true = real, y_pred = predicted), recall = Recall(y_true = real, y_pred = predicted), F1_score = F1_Score(y_true = real, y_pred = predicted), AUC = AUC(y_true = real, y_pred = predicted)))
+  return(model_comparison)
+                            
+}
+  
+```
+
 
 ##### Train control
 
@@ -757,7 +790,7 @@ xgbgrid <- expand.grid(
   min_child_weight = 1)
 
 # train the xgboost learner
-cv_xgboost <- caret::train(as.factor(y)~., data=data.matrix(training),
+cv_xgboost <- caret::train(factor(y)~., data=data.matrix(training),
                            method = 'xgbTree',
                            metric = 'Accuracy',
                            trControl = trControl,
@@ -773,21 +806,20 @@ plot(cv_xgboost, main = "CV Summary")
 
 # Top 20 important variable
 plot(varImp(cv_xgboost), main = "Variable Importance XGBoost", top = 20)
-```
 
 
-```{r}
-validation$pred <- predict(cv_xgboost, newdata = data.matrix(validation))
-validation$pred <- ifelse(validation$pred == 1, "0", "1")
-validation$pred <- as.factor(validation$pred)
+predictions_xgb <- predict(cv_xgboost, newdata = data.matrix(validation))
 
-sensitivity(validation$pred, validation$y)
+# Correcting levels 1 and 2 to 0 and 1
+predictions_xgb <- ifelse(predictions_xgb == 1,0,1)
 
+model_comparison <- eval_metrics("XGBoost", validation$y, predictions_xgb)
+model_comparison
 ```
 
 
 ```{r KNN}
-cv_knn <- caret::train(as.factor(y)~., data=data.matrix(train_data),
+cv_knn <- caret::train(as.factor(y)~., data=data.matrix(training),
                        method = "knn",
                        trControl = trControl,
                        preProcess = c("center","scale"),
@@ -799,14 +831,112 @@ cv_knn$bestTune
 
 # K vs Accuracy
 plot(cv_knn, main = "Accuracy")
+
+# model performance
+
+predictions_knn <- predict(cv_knn, newdata = data.matrix(validation))
+predictions_knn <- ifelse(predictions_knn == 1,0,1)
+model_comparison <- eval_metrics("KNN", validation$y, predictions_knn)
+model_comparison
 ```
 
 
 ##### Logistic Regression
-##### Decision Trees
+```{r}
+log_reg <- caret::train(as.formula(factor(y)~.), data = training,
+                               method = "glm", 
+                               trControl = trControl,
+                               tuneLength = 1,
+                               metric = "Accuracy", 
+preProc = c("center", "scale"))
+
+predictions_glm <- predict(log_reg, newdata = data.matrix(validation))
+
+model_comparison <- eval_metrics("Logistic Regression", validation$y, predictions_glm)
+model_comparison
+```
+
 ##### Random Forest
-##### KNN
+```{r Random Forest}
+tgrid <- expand.grid(
+  .mtry = 2:4,
+  .splitrule = "gini",
+  .min.node.size = c(10, 20)
+)
+
+rf <- caret::train(as.factor(y)~., data = training,
+                   method = "ranger",
+                   metric = "Accuracy",
+                   trControl = trControl,
+                   preProc = c("center", "scale"),
+                   tuneGrid = tgrid)
+
+predictions_rf <- predict(rf, newdata = data.matrix(validation))
+
+model_comparison <- eval_metrics("Random Forest", validation$y, predictions_rf)
+model_comparison
+```
+
+##### Support Vector Machine
+
+```{r Linear SVM}
+linearsvm <- caret::train(as.factor(y)~., data = training,
+                   method = "svmLinear",
+                   metric = "Accuracy",
+                   trControl = trControl,
+                   preProc = c("center", "scale"),
+                   tuneGrid= data.frame(.C=10^(-4:-2)))
+
+predictions_svmLinear <- predict(linearsvm, newdata = data.matrix(validation))
+
+model_comparison <- eval_metrics("Linear SVM", validation$y, predictions_svmLinear)
+model_comparison
+```
+
+```{r Radial SVM}
+tgrid <- expand.grid(sigma = c(.01, .015, 0.2),
+                    C = c(0.75, 0.9, 1, 1.1, 1.25))
+
+radialsvm <- caret::train(as.factor(y)~., data = training,
+                   method = "svmRadial",
+                   metric = "Accuracy",
+                   trControl = trControl,
+                   preProc = c("center", "scale"),
+                   tuneGrid = tgrid)
+
+predictions_svmRadial <- predict(radialsvm, newdata = data.matrix(validation))
+
+model_comparison <- eval_metrics("Non Linear SVM", validation$y, predictions_svmRadial)
+model_comparison
+```
+##### Model Selection
+```{r}
+model_comparison
+```
+The best model in terms of Sensitivity was the ________. We will now train the model with the full training data and make predictions on the test set.
+
+##### Final Model and Predictions
+
+```{r Final Model}
+train <- dataset[-which(dataset$Purchase == 0),]
+
+gc()
+xgbGrid <- expand.grid(nrounds = c(50,100), 
+                            lambda = seq(0.1, 0.5, 0.1), 
+                            alpha = seq(0.1, 0.5, 0.1),
+                            eta = c(0.3, 0.4))
+
+Final_Model<-train(formula, data=train,
+                 method='xgbLinear',
+                 tuneGrid = xgbGrid,
+                trControl=train_control_config)
+
+xgb.importance(model=Final_Model$finalModel) 
+
+predictions <- predict(Final_Model, newdata = as.matrix(test))
 
 
-
-
+submission <- data.frame(Id = original_test_data$User_ID, Purchase= (predictions))
+colnames(submission) <-c("User_Id", "Purchase")
+write.csv(submission, file = "BlackFridayPredictions.csv", row.names = FALSE) 
+```
