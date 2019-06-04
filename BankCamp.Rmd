@@ -60,6 +60,7 @@ Dataset from : http://archive.ics.uci.edu/ml/datasets/Bank+Marketing#
 #### Load Libraries
 ```{r Libraries to be used for this project, warning=FALSE}
 library(data.table)
+library(corrplot)
 library(ggplot2)
 library(dplyr)
 library(png) 
@@ -92,6 +93,7 @@ library(DataExplorer)
 library(outliers)
 library(MLmetrics)
 library(dummies)
+library(DMwR)
 ```
 
 #### Load Datasets
@@ -685,6 +687,7 @@ bank_dataset[numericFeatures] = sapply(bank_dataset[numericFeatures], scale)
 ```{r Train test validation split}
 
 # Create dummy variables
+
 bank_dataset$age <- NULL
 bank_dataset$duration <- NULL
 bank_dataset$campaign <- NULL
@@ -748,7 +751,7 @@ dim(validation)
 ```{r}
 model_comparison <- data.frame()
 eval_metrics <- function(name, real, predicted){
-  model_comparison <- rbind(model_comparison, data.frame(model = name, accuracy = Accuracy(y_true = real, y_pred = predicted), precision = Precision(y_true = real, y_pred = predicted), sensitivity =  Sensitivity(y_true = real, y_pred = predicted), specificity = Specificity(y_true = real, y_pred = predicted), recall = Recall(y_true = real, y_pred = predicted), F1_score = F1_Score(y_true = real, y_pred = predicted), AUC = AUC(y_true = real, y_pred = predicted)))
+  model_comparison <- rbind(model_comparison, data.frame(model = name, accuracy = Accuracy(y_true = real, y_pred = predicted), precision = Precision(y_true = real, y_pred = predicted, positive = "1"), sensitivity =  Sensitivity(y_true = real, y_pred = predicted, positive = "1"), specificity = Specificity(y_true = real, y_pred = predicted, positive = "1"), recall = Recall(y_true = real, y_pred = predicted, positive = "1"), F1_score = F1_Score(y_true = real, y_pred = predicted, positive = "1"), AUC = AUC(y_true = real, y_pred = predicted)))
   return(model_comparison)
                             
 }
@@ -909,34 +912,132 @@ predictions_svmRadial <- predict(radialsvm, newdata = data.matrix(validation))
 model_comparison <- eval_metrics("Non Linear SVM", validation$y, predictions_svmRadial)
 model_comparison
 ```
+
+##### Resampling  
+Unbalanced classification problems cause problems to many learning algorithms. These problems are characterized by the uneven proportion of cases that are available for each class of the problem.
+
+SMOTE (Chawla et. al. 2002) is a well-known algorithm to fight this problem. The general idea of this method is to artificially generate new examples of the minority class using the nearest neighbors of these cases. Furthermore, the majority class examples are also under-sampled, leading to a more balanced dataset.
+
+```{r}
+train_data_smoted <- SMOTE(y~., data=train_data, perc.over = 100, perc.under = 200, k=5)
+
+# Applying the function to the training_data
+splits <- splitdf(train_data_smoted, seed = 8)
+
+# Splitting the data into train set and validation set
+training_smoted <- splits$trainset
+validation_smoted <- splits$testset
+
+# Append and split again to keep same factor levels
+appended <- rbind(training_smoted, validation_smoted)
+training_smoted <- appended[1:nrow(training_smoted),]
+validation_smoted <- appended[nrow(training_smoted):nrow(appended),]
+
+table(train_data_smoted$y)
+```
+
+
+##### Logistic Regression with Resample
+```{r}
+log_reg_smot <- caret::train(as.formula(factor(y)~.), data = training_smoted,
+                               method = "glm", 
+                               trControl = trControl,
+                               tuneLength = 1,
+                               metric = "Accuracy", 
+preProc = c("center", "scale"))
+
+predictions_glm_smot <- predict(log_reg_smot, newdata = data.matrix(validation_smoted))
+
+
+model_comparison <- eval_metrics("Logistic Regression with Resample", validation_smoted$y, predictions_glm_smot)
+model_comparison
+```
+### XG BOOST with Resample
+
+```{r XGBOOST}
+# train the xgboost learner
+cv_xgboost_smot <- caret::train(factor(y)~., data=data.matrix(training_smoted),
+                           method = 'xgbTree',
+                           metric = 'Accuracy',
+                           trControl = trControl,
+                           tuneGrid = xgbgrid)
+
+
+# Best tunning parameters obtained
+cv_xgboost_smot$results
+cv_xgboost_smot$bestTune
+
+# Let's check the variable importance
+plot(cv_xgboost_smot, main = "CV Summary")
+
+# Top 20 important variable
+plot(varImp(cv_xgboost_smot), main = "Variable Importance XGBoost", top = 20)
+
+
+predictions_xgb_smot <- predict(cv_xgboost_smot, newdata = data.matrix(validation_smoted))
+
+# Correcting levels 1 and 2 to 0 and 1
+predictions_xgb_smot <- ifelse(predictions_xgb_smot == 1,0,1)
+predictions_xgb_smot <- as.factor(predictions_xgb_smot)
+model_comparison <- eval_metrics("XGBoost with Resample", validation_smoted$y, predictions_xgb_smot)
+model_comparison
+
+```
+
+##### Random Forest with Resampling
+```{r Random Forest}
+rf_smot <- caret::train(as.factor(y)~., data = training_smoted,
+                   method = "ranger",
+                   metric = "Accuracy",
+                   trControl = trControl,
+                   preProc = c("center", "scale"),
+                   tuneGrid = tgrid)
+
+predictions_rf_smot <- predict(rf_smot, newdata = data.matrix(validation_smoted))
+
+
+model_comparison <- eval_metrics("Random Forest with Resample", validation_smoted$y, predictions_rf_smot)
+model_comparison
+```
+##### Support Vector Machine with Resampling
+
+```{r Linear SVM}
+linearsvm_smot <- caret::train(as.factor(y)~., data = training_smoted,
+                   method = "svmLinear",
+                   metric = "Accuracy",
+                   trControl = trControl,
+                   preProc = c("center", "scale"),
+                   tuneGrid= data.frame(.C=10^(-4:-2)))
+
+predictions_svmLinear_smot <- predict(linearsvm_smot, newdata = data.matrix(validation_smoted))
+
+model_comparison <- eval_metrics("Linear SVM with Resampling", validation_smoted$y, predictions_svmLinear_smot)
+model_comparison
+```
+
+
 ##### Model Selection
 ```{r}
 model_comparison
 ```
-The best model in terms of Sensitivity was the ________. We will now train the model with the full training data and make predictions on the test set.
+The best model in terms of Sensitivity was the XGBoost. We will now train the model with the full training data and make predictions on the test set.
 
 ##### Final Model and Predictions
 
 ```{r Final Model}
-train <- dataset[-which(dataset$Purchase == 0),]
+cv_xgboost_smot$bestTune
 
-gc()
-xgbGrid <- expand.grid(nrounds = c(50,100), 
-                            lambda = seq(0.1, 0.5, 0.1), 
-                            alpha = seq(0.1, 0.5, 0.1),
-                            eta = c(0.3, 0.4))
-
-Final_Model<-train(formula, data=train,
-                 method='xgbLinear',
-                 tuneGrid = xgbGrid,
-                trControl=train_control_config)
-
-xgb.importance(model=Final_Model$finalModel) 
-
-predictions <- predict(Final_Model, newdata = as.matrix(test))
+Final_Model<-caret::train(factor(y)~., data=data.matrix(train_data_smoted),
+                           method = 'xgbTree',
+                           metric = 'Accuracy',
+                           trControl = trControl,
+                           tuneGrid = xgbgrid)
 
 
-submission <- data.frame(Id = original_test_data$User_ID, Purchase= (predictions))
-colnames(submission) <-c("User_Id", "Purchase")
-write.csv(submission, file = "BlackFridayPredictions.csv", row.names = FALSE) 
+predictions <- predict(Final_Model, newdata = data.matrix(test_data))
+predictions <- ifelse(predictions == 1,0,1)
+table(predictions)
+submission <- data.frame(prediction = predictions)
+
+write.csv(submission, file = "BankCampPredictions.csv", row.names = FALSE) 
 ```
