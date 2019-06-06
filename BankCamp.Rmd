@@ -1,6 +1,6 @@
 ---
 title: "BankCamp"
-author: "Group 4: Andrew Rizk, Dominik Thausing, Andrea Salvati, Aksel Husebø, Manuel Ehmann, Daan Pelt, Martin Da Costa Louzada"
+author: "Group 4: Andrew Rizk, Dominik Thausing, Andrea Salvati, Aksel Huseb?, Manuel Ehmann, Daan Pelt, Martin Da Costa Louzada"
 date: "3 June 2019"
 output:
   html_document:
@@ -10,10 +10,11 @@ output:
     toc: yes
     toc_float: yes
     toc_depth: 2
+runtime: shiny
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
 ```
 
 ### Bank Marketing
@@ -57,9 +58,13 @@ Data Set Information: The data is related with direct marketing campaigns of a P
 ##### Source:
 Dataset from : http://archive.ics.uci.edu/ml/datasets/Bank+Marketing#
 
+#### Github link
+<https://github.com/andreasalvati/Bank-Campaign-Classification>
+
 #### Load Libraries
 ```{r Libraries to be used for this project, warning=FALSE}
 library(data.table)
+library(corrplot)
 library(ggplot2)
 library(dplyr)
 library(png) 
@@ -90,6 +95,9 @@ library(caretEnsemble)
 library(mlbench)
 library(DataExplorer)
 library(outliers)
+library(MLmetrics)
+library(dummies)
+library(DMwR)
 ```
 
 #### Load Datasets
@@ -113,8 +121,8 @@ cat("The combined dataset has ", dim(bank_dataset)[1], "rows and ", dim(bank_dat
 ```
 
 #### NA Discovery
-We need to clean NA values in all the columns and fill the empty cells with proper judgements based on each variable's condition.
-First, we explore which columns have missing values.
+We need to clean NA values in all the columns and impute the empty cells with proper methods based on each variable's condition.
+First, we explore which columns have missing values. However, we noticed that our dataset is clean and no missing values are present and we could proceed directly to the EDA and feature engineering.
 
 ```{r NA Discovery}
 # Visualizing Missing Data
@@ -126,8 +134,6 @@ sort(colSums(sapply(bank_dataset[na.cols], is.na)), decreasing = TRUE)
 
 ```
 
-Therefore no missing values are present in the dataset and we can continue with feature engineering
-
 #### Data Structure
 Now we will check the structure of the dataset.
 ```{r Dataset Structure and Features}
@@ -137,7 +143,7 @@ summary(bank_dataset)
 ```
 
 #### EDA
-
+For the EDA, we analyzed first the target variable to see the proportions of each class (yes/no) then we analyzed each variable separately along with the target variable to see how the target varies with changes in independent variables.
 ```{r Target Variable}
 
 # Count of target classes
@@ -594,17 +600,17 @@ ggplot(data = day2, aes(x = day, y = count, fill = y)) +
 
 
 #### Data Cleaning
-
+The dataset was fairly clean 
 ```{r}
 
-# for pdays, 999 means that the client was not contacted before so we will replace 999 with zeroes
-# bank_dataset$pdays[which(bank_dataset$pdays == 999)] <- 0
+# Based on the dataset describtioj, for pdays, 999 means that the client was not contacted before so we will replace 999 with zeroes
+bank_dataset$pdays[which(bank_dataset$pdays == 999)] <- 0
 
 ```
 
 
 #### Feature Creation/Engineering
-
+Along with the binning that was previously done in the visualization process, we will convert the target variable intro a binary variable of 0s and 1s and then factorizing it.
 ```{r}
 
 bank_dataset[["y"]] <- ifelse(bank_dataset$y == "no", 0, 1)
@@ -614,7 +620,8 @@ bank_dataset$y <- as.factor(bank_dataset$y)
 
 
 #### Factorizing Features
-
+There are some numerical features that should be perseved as categorical ones, in order to gasp correctly the information inside those columns.
+If we analyze some features we will see that we have categorical values encoded as numeric. We will transform some of those into factors since they cant be used in any calculation.
 ```{r}
 bank_dataset$day <- as.factor(bank_dataset$day)
 bank_dataset$balance_range <- as.factor(bank_dataset$balance_range)
@@ -625,7 +632,6 @@ bank_dataset$campaign_group <- as.factor(bank_dataset$campaign_group)
 
 
 #### Outliers 
-
 We will now focus on numerical values. In this section, we will detect numerical features which present outliers and I will clip those values.
 ```{r detecting Outliers, echo=FALSE}
 
@@ -667,7 +673,7 @@ for (i in col_outliers_to_remove){
 
 
 #### Scaling
-
+We will now standardize all the numeric features since the range of the data values varies widely. We will scale the variables so that their scale varies around zero. This is done so that the variance of the features are in the same range. If a feature's variance in orders of magnitude more than the variance of other features, that particular feature might dominate other features in the dataset, which is not something we want happening in our model.
 ```{r}
 # Feature scaling
 numericFeatures = sapply(bank_dataset[,-1], is.numeric)
@@ -680,18 +686,34 @@ bank_dataset[numericFeatures] = sapply(bank_dataset[numericFeatures], scale)
 #### Final Dataset
 
 #### Train and Test Split
+We will now remove some variables that were previously binned and dummify the dataset for modeling purposes.
 ```{r Train test validation split}
 
+# Create dummy variables
+
+bank_dataset$age <- NULL
+bank_dataset$duration <- NULL
+bank_dataset$campaign <- NULL
+bank_dataset$balance <- NULL
+bank_dataset <- dummy.data.frame(bank_dataset)
+bank_dataset[["y"]] <- ifelse(bank_dataset$y0 == 1, 0,1)
+bank_dataset$y <- as.factor(bank_dataset$y)
+bank_dataset$y0 <- NULL
+bank_dataset$y1 <- NULL
+bank_dataset$yNA <- NULL
+
 # Split the dataset into TRAIN and TEST
-train_data <- as.data.frame(bank_dataset[bank_dataset$train_test == "train",])
-test_data <- as.data.frame(bank_dataset[bank_dataset$train_test == "test",])
+train_data <- as.data.frame(bank_dataset[bank_dataset$train_testtrain == 1,])
+test_data <- as.data.frame(bank_dataset[bank_dataset$train_testtest == 1,])
+
+train_data$train_testtrain <- NULL
+train_data$train_testtest <- NULL
+test_data$train_testtrain <- NULL
+test_data$train_testtest <- NULL
+
 
 dim(train_data)
 dim(test_data)
-
-train_data <- train_data[,-which(names(train_data) == "train_test")]
-test_data <- test_data[,-which(names(test_data) == "train_test")]
-
 ```
 
 
@@ -716,15 +738,34 @@ splits <- splitdf(train_data, seed = 8)
 training <- splits$trainset
 validation <- splits$testset
 
+# Append and split again to keep same factor levels
+appended <- rbind(training, validation)
+training <- appended[1:nrow(training),]
+validation <- appended[nrow(training):nrow(appended),]
 dim(training)
 dim(validation)
+
 
 ```
 
 #### Modeling
 
-##### Train control
+##### Evaluation Function 
+We will construct an evaluation function that simply takes the name of the model and evaluates each based on the metrics underneath then appends it to a dataframe which allows for model comparison.
+```{r}
+model_comparison <- data.frame()
 
+eval_metrics <- function(name, real, predicted){
+  model_comparison <- rbind(model_comparison, data.frame(model = name, accuracy = Accuracy(y_true = real, y_pred = predicted), precision = Precision(y_true = real, y_pred = predicted, positive = "1"), sensitivity =  Sensitivity(y_true = real, y_pred = predicted, positive = "1"), specificity = Specificity(y_true = real, y_pred = predicted, positive = "1"), recall = Recall(y_true = real, y_pred = predicted, positive = "1"), F1_score = F1_Score(y_true = real, y_pred = predicted, positive = "1"), AUC = AUC(y_true = real, y_pred = predicted)))
+  return(model_comparison)
+                            
+}
+  
+```
+
+
+##### Train control
+Before modeling we will set our training control parameters as displayed below.
 ```{r train control}
 trControl<- trainControl(method="repeatedcv",
                              number=5,
@@ -733,31 +774,20 @@ trControl<- trainControl(method="repeatedcv",
                              verboseIter = FALSE)
 ```
 
-### XG BOOST
-
-Let's build a XG Boost model using differnet grid parameters and training control parameters, mentioned previously.
-
+##### XG BOOST
+Let's build a XG Boost model using the grid parameters below and a train control of 5 cv. Note that the hyperparameters below have been iterated over many times before reaching the parameters for final search.
 ```{r XGBOOST}
-# xgbgrid <- expand.grid(
-#   nrounds=c(100, 500, 1000),
-#   max_depth = c(6, 10),
-#   eta = c(0.05, 0.1),
-#   gamma = c(0, 0.3),
-#   colsample_bytree = c(0.5, 0.75),
-#   subsample = c(0.5, 0.8),
-#   min_child_weight = c(1, 2, 5))
-
 xgbgrid <- expand.grid(
-  nrounds=200,
-  max_depth = 6,
-  eta = 0.05,
-  gamma = c(0.2, 1),
-  colsample_bytree = 0.5,
-  subsample = 0.5,
-  min_child_weight = 1)
+   nrounds=c(100, 200),
+   max_depth = c(6, 10),
+   eta = 0.05,
+   gamma = c(0, 0.3),
+   colsample_bytree = c(0.5, 0.75),
+   subsample = 0.5,
+   min_child_weight = c(1, 2, 5))
 
 # train the xgboost learner
-cv_xgboost <- caret::train(as.factor(y)~., data=data.matrix(training),
+cv_xgboost <- caret::train(factor(y)~., data=data.matrix(training),
                            method = 'xgbTree',
                            metric = 'Accuracy',
                            trControl = trControl,
@@ -773,21 +803,20 @@ plot(cv_xgboost, main = "CV Summary")
 
 # Top 20 important variable
 plot(varImp(cv_xgboost), main = "Variable Importance XGBoost", top = 20)
+
+
+predictions_xgb <- predict(cv_xgboost, newdata = data.matrix(validation))
+
+# Correcting levels 1 and 2 to 0 and 1
+predictions_xgb <- ifelse(predictions_xgb == 1,0,1)
+
+model_comparison <- eval_metrics("XGBoost", validation$y, predictions_xgb)
+model_comparison
 ```
 
-
-```{r}
-validation$pred <- predict(cv_xgboost, newdata = data.matrix(validation))
-validation$pred <- ifelse(validation$pred == 1, "0", "1")
-validation$pred <- as.factor(validation$pred)
-
-sensitivity(validation$pred, validation$y)
-
-```
-
-
+##### KNN
 ```{r KNN}
-cv_knn <- caret::train(as.factor(y)~., data=data.matrix(train_data),
+cv_knn <- caret::train(as.factor(y)~., data=data.matrix(training),
                        method = "knn",
                        trControl = trControl,
                        preProcess = c("center","scale"),
@@ -799,14 +828,329 @@ cv_knn$bestTune
 
 # K vs Accuracy
 plot(cv_knn, main = "Accuracy")
+
+# model performance
+
+predictions_knn <- predict(cv_knn, newdata = data.matrix(validation))
+predictions_knn <- ifelse(predictions_knn == 1,0,1)
+model_comparison <- eval_metrics("KNN", validation$y, predictions_knn)
+model_comparison
 ```
 
 
 ##### Logistic Regression
-##### Decision Trees
+```{r}
+log_reg <- caret::train(as.formula(factor(y)~.), data = training,
+                               method = "glm", 
+                               trControl = trControl,
+                               tuneLength = 1,
+                               metric = "Accuracy", 
+preProc = c("center", "scale"))
+
+predictions_glm <- predict(log_reg, newdata = data.matrix(validation))
+
+model_comparison <- eval_metrics("Logistic Regression", validation$y, predictions_glm)
+model_comparison
+```
+
 ##### Random Forest
-##### KNN
+```{r Random Forest}
+tgrid <- expand.grid(
+  .mtry = 2:4,
+  .splitrule = "gini",
+  .min.node.size = c(10, 20)
+)
+
+rf <- caret::train(as.factor(y)~., data = training,
+                   method = "ranger",
+                   metric = "Accuracy",
+                   trControl = trControl,
+                   preProc = c("center", "scale"),
+                   tuneGrid = tgrid)
+
+predictions_rf <- predict(rf, newdata = data.matrix(validation))
+
+model_comparison <- eval_metrics("Random Forest", validation$y, predictions_rf)
+model_comparison
+```
+
+##### Support Vector Machine
+```{r Linear SVM}
+linearsvm <- caret::train(as.factor(y)~., data = training,
+                   method = "svmLinear",
+                   metric = "Accuracy",
+                   trControl = trControl,
+                   preProc = c("center", "scale"),
+                   tuneGrid= data.frame(.C=10^(-4:-2)))
+
+predictions_svmLinear <- predict(linearsvm, newdata = data.matrix(validation))
+
+model_comparison <- eval_metrics("Linear SVM", validation$y, predictions_svmLinear)
+model_comparison
+```
+
+For Radial SVM we commented it out after evaluation due to long training time and noticing that it 
+```{r Radial SVM, eval = FALSE}
+# tgrid <- expand.grid(sigma = c(.01, .015, 0.2),
+#                     C = c(0.75, 0.9, 1, 1.1, 1.25))
+# 
+# radialsvm <- caret::train(as.factor(y)~., data = training,
+#                    method = "svmRadial",
+#                    metric = "Accuracy",
+#                    trControl = trControl,
+#                    preProc = c("center", "scale"),
+#                    tuneGrid = tgrid)
+# 
+# predictions_svmRadial <- predict(radialsvm, newdata = data.matrix(validation))
+# 
+# model_comparison <- eval_metrics("Non Linear SVM", validation$y, predictions_svmRadial)
+# model_comparison
+```
+
+##### Resampling  
+Unbalanced classification problems cause problems to many learning algorithms. These problems are characterized by the uneven proportion of cases that are available for each class of the problem.
+
+SMOTE (Chawla et. al. 2002) is a well-known algorithm to fight this problem. The general idea of this method is to artificially generate new examples of the minority class using the nearest neighbors of these cases. Furthermore, the majority class examples are also under-sampled, leading to a more balanced dataset.
+
+```{r}
+# killing old model comparison
+model_comparison <- data.frame()
+
+train_data_smoted <- SMOTE(y~., data=train_data, perc.over = 100, perc.under = 200, k=5)
+
+# Applying the function to the training_data
+splits <- splitdf(train_data_smoted, seed = 8)
+
+# Splitting the data into train set and validation set
+training_smoted <- splits$trainset
+validation_smoted <- splits$testset
+
+# Append and split again to keep same factor levels
+appended <- rbind(training_smoted, validation_smoted)
+training_smoted <- appended[1:nrow(training_smoted),]
+validation_smoted <- appended[nrow(training_smoted):nrow(appended),]
+
+table(train_data_smoted$y)
+```
+
+##### KNN with Resampling
+```{r KNN Resample}
+cv_knn_smot <- caret::train(as.factor(y)~., data=data.matrix(training_smoted),
+                       method = "knn",
+                       trControl = trControl,
+                       preProcess = c("center","scale"),
+                       tuneLength = 20,
+                       tuneGrid= expand.grid(.k=c(5,8,10)))
+
+# Best tunning parameters
+cv_knn_smot$bestTune
+
+# K vs Accuracy
+plot(cv_knn_smot, main = "Accuracy")
+
+# model performance
+prob_knn <- predict(cv_knn_smot, newdata = data.matrix(validation_smoted), type="prob")
+predictions_knn_smot <- predict(cv_knn_smot, newdata = data.matrix(validation_smoted))
+predictions_knn_smot <- ifelse(predictions_knn_smot == 1,0,1)
+model_comparison <- eval_metrics("KNN", validation_smoted$y, predictions_knn_smot)
+model_comparison
+```
+
+##### Logistic Regression with Resampling
+```{r}
+log_reg_smot <- caret::train(as.formula(factor(y)~.), data = training_smoted,
+                               method = "glm", 
+                               trControl = trControl,
+                               tuneLength = 1,
+                               metric = "Accuracy", 
+preProc = c("center", "scale"))
+
+predictions_glm_smot <- predict(log_reg_smot, newdata = data.matrix(validation_smoted))
+prob_glm <- predict(log_reg_smot, newdata = data.matrix(validation_smoted), type="prob")
+
+model_comparison <- eval_metrics("LogisticRegression", validation_smoted$y, predictions_glm_smot)
+model_comparison
+```
+##### XG BOOST with Resampling
+```{r XGBOOST Resample}
+# train the xgboost learner
+cv_xgboost_smot <- caret::train(factor(y)~., data=data.matrix(training_smoted),
+                           method = 'xgbTree',
+                           metric = 'Accuracy',
+                           trControl = trControl,
+                           tuneGrid = xgbgrid)
+
+
+# Best tunning parameters obtained
+cv_xgboost_smot$results
+cv_xgboost_smot$bestTune
+
+# Let's check the variable importance
+plot(cv_xgboost_smot, main = "CV Summary")
+
+# Top 20 important variable
+plot(varImp(cv_xgboost_smot), main = "Variable Importance XGBoost", top = 20)
+
+
+predictions_xgb_smot <- predict(cv_xgboost_smot, newdata = data.matrix(validation_smoted))
+prob_xgb <- predict(cv_xgboost_smot, newdata = data.matrix(validation_smoted), type="prob")
+
+# Correcting levels 1 and 2 to 0 and 1
+predictions_xgb_smot <- ifelse(predictions_xgb_smot == 1,0,1)
+predictions_xgb_smot <- as.factor(predictions_xgb_smot)
+model_comparison <- eval_metrics("XGBoost", validation_smoted$y, predictions_xgb_smot)
+model_comparison
+
+```
+
+##### Random Forest with Resampling
+```{r Random Forest Resample}
+trControl_rf<- trainControl(method="repeatedcv",
+                            number=5,
+                            search="grid",
+                            savePredictions = TRUE,
+                            verboseIter = FALSE,
+                            classProbs=TRUE)
+
+training_rf <- training_smoted
+training_rf$y <- ifelse(training_rf$y == 0,"no","yes")
+
+rf_smot <- caret::train(as.factor(y)~., data = training_rf,
+                   method = "ranger",
+                   metric = "Accuracy",
+                   trControl = trControl_rf,
+                   preProc = c("center", "scale"),
+                   tuneGrid = tgrid, importance = 'impurity')
 
 
 
+predictions_rf_smot <- predict(rf_smot, newdata = data.matrix(validation_smoted))
+predictions_rf_smot <- ifelse(predictions_rf_smot == "no",0,1)
+prob_rf <- predict(rf_smot, newdata = data.matrix(validation_smoted),type = "prob")
+model_comparison <- eval_metrics("RandomForest", validation_smoted$y, predictions_rf_smot)
+model_comparison
+```
 
+##### Support Vector Machine with Resampling
+```{r Linear SVM Resample}
+linearsvm_smot <- caret::train(as.factor(y)~., data = training_smoted,
+                   method = "svmLinear",
+                   metric = "Accuracy",
+                   trControl = trControl,
+                   preProc = c("center", "scale"),
+                   tuneGrid= data.frame(.C=10^(-4:-2)))
+
+predictions_svmLinear_smot <- predict(linearsvm_smot, newdata = data.matrix(validation_smoted))
+prob_svm <- predict(linearsvm_smot, newdata = data.matrix(validation_smoted), type="prob")
+
+model_comparison <- eval_metrics("SVM", validation_smoted$y, predictions_svmLinear_smot)
+model_comparison
+```
+
+
+##### Model Selection
+```{r}
+model_comparison
+```
+The best model in terms of Sensitivity was the XGBoost. We will now train the model with the full training data and make predictions on the test set.
+
+#### Displaying Models
+The follwing shiny app allows the user to pick models and allows for comparison between them with respect to the calculated metrics!
+```{r, echo=FALSE}
+
+library(shiny)
+
+shinyApp(
+  
+  ui = fluidPage(
+    titlePanel("Model Overview"),
+    sidebarPanel(
+      selectInput("metric", "Choose Barplot Metric", colnames(model_comparison[,2:8]), selected = "sensitivity"),
+      selectInput("model", "Choose Model", model_comparison$model)
+    ),
+    
+    # Create a spot for the outputs
+    mainPanel(
+      plotOutput('model_barplot'),
+      tableOutput(outputId = "model_table"),
+      verbatimTextOutput(outputId = "confusion_matrix"),
+      plotOutput('variableImportance'),
+      plotOutput('rocCurve')
+    )
+    
+  ),
+
+  server = function(input, output) {
+    
+    output$model_barplot <- renderPlot({
+      
+      ggplot(data=model_comparison, aes(x=model, y=model_comparison[,input$metric])) +
+        geom_bar(position = 'dodge', stat='identity') + ylab(label = input$metric) +
+        ggtitle(paste("Barplot: Models' ",input$metric,sep = "")) +
+        geom_text(aes(label=round(model_comparison[,input$metric],3)), position=position_dodge(width=2),
+               vjust=-0.25)
+      
+    })
+    
+    output$confusion_matrix <- renderPrint({
+      
+      predictions <- data.frame("XGBoost" = predictions_xgb_smot, "KNN" = predictions_knn_smot, "LogisticRegression" = predictions_glm_smot, "RandomForest" = predictions_rf_smot, "SVM" = predictions_svmLinear_smot)
+  
+      # compute the confusion matrix
+      cf_matrix<-confusionMatrix(data =
+                                as.factor(predictions[,input$model]),
+                                reference=as.factor(validation_smoted$y))
+      print(cf_matrix$table)
+      
+      })
+    
+    output$model_table <- renderTable(model_comparison[model_comparison$model==input$model,])
+    
+    
+    output$variableImportance <- renderPlot({
+      
+      
+      all_models <- list("XGBoost" = cv_xgboost_smot, "LogisticRegression" = log_reg_smot, "RandomForest" = rf_smot, "SVM" = linearsvm_smot)
+      
+      if(input$model=="KNN"){
+        plot(cv_knn_smot, main = "Accuracy KNN")
+      }
+      else{
+      plot(varImp(all_models[[input$model]]), 
+             main = paste("Variable Importance ",input$model), top = 20)
+      }
+    })
+   
+    output$rocCurve <- renderPlot({
+      
+      all_models_prob <- list("XGBoost" = prob_xgb, "KNN" = prob_knn, "LogisticRegression" = prob_glm, "RandomForest" = prob_rf, "SVM" = prob_svm)
+      
+      plot(roc(predictor = all_models_prob[[input$model]][,1], response = validation_smoted$y), main = paste("AUC ",input$model))
+      
+    })
+    
+  }
+  
+)
+```
+
+
+##### Final Model and Predictions
+After comparing models and defining the business case, we picked the best model (XGBoost) to predict our test dataset and export the results in a csv.
+```{r Final Model}
+cv_xgboost_smot$bestTune
+
+Final_Model<-caret::train(factor(y)~., data=data.matrix(train_data_smoted),
+                           method = 'xgbTree',
+                           metric = 'Accuracy',
+                           trControl = trControl,
+                           tuneGrid = xgbgrid)
+
+
+predictions <- predict(Final_Model, newdata = data.matrix(test_data))
+predictions <- ifelse(predictions == 1,0,1)
+table(predictions)
+submission <- data.frame(prediction = predictions)
+
+write.csv(submission, file = "BankCampPredictions.csv", row.names = FALSE) 
+```
