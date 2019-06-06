@@ -40,8 +40,10 @@ ui <- dashboardPage(
   dashboardSidebar(
     sidebarMenu(
       menuItem("Bank Campaign EDA", tabName = "dashboard", icon = icon("dashboard")),
-      menuItem("Dataset Description", icon = icon("send",lib='glyphicon'), 
-               href = "http://archive.ics.uci.edu/ml/datasets/Bank+Marketing#")
+      menuItem("Dataset Description", icon = icon("cog",lib='glyphicon'), 
+               href = "http://archive.ics.uci.edu/ml/datasets/Bank+Marketing#"),
+      menuItem("Model Results", icon = icon("send", lib = "glyphicon"), 
+               href = "http://127.0.0.1:5378")
       
     )
   ),
