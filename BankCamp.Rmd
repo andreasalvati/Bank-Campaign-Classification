@@ -1,7 +1,7 @@
 ---
 title: "BankCamp"
 author: "Group 4: Andrew Rizk, Dominik Thausing, Andrea Salvati, Aksel Huseb?, Manuel Ehmann, Daan Pelt, Martin Da Costa Louzada"
-date: "3 June 2019"
+date: "6 June 2019"
 output:
   html_document:
     fig_caption: yes
