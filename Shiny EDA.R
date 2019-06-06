@@ -9,12 +9,8 @@
 #### Loading Libraries
 library(shiny)
 library(shinydashboard)
-library(splitstackshape) 
-library(tidyr)
 library(dplyr)
-library(BBmisc)
 library(ggplot2)
-library(recommenderlab)
 library(RColorBrewer)
 
 bank_train <- read.csv("BankCamp_train.csv", header = T)
